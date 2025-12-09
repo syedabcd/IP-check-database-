@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { IpRecord } from '../types';
+import { IpRecord, AppUser, UserStats, AccessLog } from '../types';
 
 // Helper to ensure client exists before usage
 const getClient = () => {
@@ -8,6 +8,8 @@ const getClient = () => {
   }
   return supabase;
 };
+
+// --- IP Operations ---
 
 export const checkIpAvailability = async (ip: string): Promise<boolean> => {
   const client = getClient();
@@ -50,11 +52,9 @@ export const getAllIps = async (): Promise<IpRecord[]> => {
   }));
 };
 
-export const addIpAddress = async (ip: string): Promise<IpRecord> => {
+export const addIpAddress = async (ip: string, addedBy: string = 'admin'): Promise<IpRecord> => {
   const client = getClient();
 
-  // Check existence first to avoid 409 error logs if possible, 
-  // though RLS/constraints handle this too.
   const exists = await checkIpAvailability(ip);
   if (!exists) {
      throw new Error('IP address already exists in the database.');
@@ -65,14 +65,14 @@ export const addIpAddress = async (ip: string): Promise<IpRecord> => {
     .insert([
       { 
         address: ip, 
-        added_by: 'admin' // In a real app with Auth, this would be the user's ID
+        added_by: addedBy 
       }
     ])
     .select()
     .single();
 
   if (error) {
-    if (error.code === '23505') { // Postgres unique_violation code
+    if (error.code === '23505') { 
        throw new Error('IP address already exists in the database.');
     }
     throw error;
@@ -93,14 +93,10 @@ export const bulkAddIpAddresses = async (ips: string[]): Promise<{ added: number
   let existing = 0;
   let errors = 0;
   
-  // IPv4 Regex
   const regex = /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/;
-
-  // Dedup input list within itself
   const uniqueInputIps = Array.from(new Set(ips));
   const validIps: string[] = [];
 
-  // 1. Filter locally for valid syntax
   for (const ip of uniqueInputIps) {
     if (!regex.test(ip)) {
       errors++;
@@ -113,8 +109,6 @@ export const bulkAddIpAddresses = async (ips: string[]): Promise<{ added: number
     return { added, existing, errors };
   }
 
-  // 2. Check which ones already exist in Supabase
-  // We fetch all IPs from DB that match our input list
   const { data: existingRecords, error: fetchError } = await client
     .from('ip_records')
     .select('address')
@@ -122,13 +116,11 @@ export const bulkAddIpAddresses = async (ips: string[]): Promise<{ added: number
 
   if (fetchError) {
     console.error("Bulk check failed", fetchError);
-    // Fallback: treat all valid IPs as potential additions (slow path) or abort
     throw new Error("Database connection failed during bulk check");
   }
 
   const existingSet = new Set(existingRecords?.map((r: any) => r.address));
 
-  // 3. Prepare new records
   const newRecords = validIps
     .filter(ip => {
       if (existingSet.has(ip)) {
@@ -143,14 +135,12 @@ export const bulkAddIpAddresses = async (ips: string[]): Promise<{ added: number
     }));
 
   if (newRecords.length > 0) {
-    // 4. Bulk Insert
     const { error: insertError } = await client
       .from('ip_records')
       .insert(newRecords);
 
     if (insertError) {
       console.error("Bulk insert failed", insertError);
-      // In a real scenario, you might want to retry or handle partial failures
       throw new Error("Failed to insert records");
     }
     added = newRecords.length;
@@ -171,4 +161,129 @@ export const deleteIpAddress = async (id: string): Promise<void> => {
     console.error("Delete failed", error);
     throw error;
   }
+};
+
+// --- User Operations ---
+
+export const getAppUsers = async (): Promise<AppUser[]> => {
+  const client = getClient();
+  
+  const { data, error } = await client
+    .from('app_users')
+    .select('*')
+    .order('name', { ascending: true });
+
+  if (error) {
+    console.warn("Failed to fetch users (Table might not exist yet)", error);
+    return [];
+  }
+
+  return data.map((u: any) => ({
+    id: u.id,
+    name: u.name,
+    createdAt: u.created_at
+  }));
+};
+
+export const createAppUser = async (name: string): Promise<AppUser> => {
+  const client = getClient();
+  
+  const { data, error } = await client
+    .from('app_users')
+    .insert([{ name }])
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    name: data.name,
+    createdAt: data.created_at
+  };
+};
+
+export const deleteAppUser = async (id: string): Promise<void> => {
+  const client = getClient();
+  
+  // Note: This might fail if logs reference this user. 
+  // In a real app we'd cascade delete or soft delete.
+  const { error } = await client
+    .from('app_users')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+};
+
+// --- Logging Operations ---
+
+export const logAccess = async (userId: string, ip: string, status: 'FRESH' | 'DUPLICATE') => {
+  const client = getClient();
+  
+  const { error } = await client
+    .from('access_logs')
+    .insert([{
+      user_id: userId,
+      ip_address: ip,
+      status: status
+    }]);
+
+  if (error) console.error("Failed to log access", error);
+};
+
+export const getUserStats = async (userId: string): Promise<UserStats> => {
+  const client = getClient();
+  
+  // We can use count queries for efficiency
+  
+  // Count Fresh
+  const { count: freshCount, error: freshError } = await client
+    .from('access_logs')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('status', 'FRESH');
+
+  // Count Duplicate
+  const { count: dupCount, error: dupError } = await client
+    .from('access_logs')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('status', 'DUPLICATE');
+    
+  if (freshError || dupError) {
+    console.error("Error fetching stats", freshError || dupError);
+    return { fresh: 0, duplicate: 0, total: 0 };
+  }
+
+  const fresh = freshCount || 0;
+  const duplicate = dupCount || 0;
+
+  return {
+    fresh,
+    duplicate,
+    total: fresh + duplicate
+  };
+};
+
+export const getUserLogs = async (userId: string): Promise<AccessLog[]> => {
+  const client = getClient();
+
+  const { data, error } = await client
+    .from('access_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error("Error fetching user logs", error);
+    return [];
+  }
+
+  return data.map((log: any) => ({
+    id: log.id,
+    ipAddress: log.ip_address,
+    status: log.status,
+    createdAt: log.created_at
+  }));
 };
