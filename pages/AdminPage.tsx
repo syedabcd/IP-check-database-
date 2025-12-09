@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Lock, LogOut, Plus, Trash2, Database, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Lock, LogOut, Plus, Trash2, Database, AlertTriangle, Upload, FileText, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '../components/Button';
-import { getAllIps, addIpAddress, deleteIpAddress } from '../services/dbService';
+import { getAllIps, addIpAddress, deleteIpAddress, bulkAddIpAddresses } from '../services/dbService';
 import { IpRecord } from '../types';
 
 export const AdminPage: React.FC = () => {
@@ -17,6 +17,11 @@ export const AdminPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState('');
+
+  // Bulk Upload State
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStats, setUploadStats] = useState<{ added: number; existing: number; errors: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check session on mount (simple in-memory persistence for this demo)
   useEffect(() => {
@@ -93,6 +98,48 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadStats(null);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        // Split by new line, trim, remove empty lines
+        const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+        
+        if (lines.length === 0) {
+            alert("File appears to be empty.");
+            setIsUploading(false);
+            return;
+        }
+
+        const result = await bulkAddIpAddresses(lines);
+        setUploadStats(result);
+        
+        if (result.added > 0) {
+            await fetchData();
+        }
+      } catch (error) {
+        console.error("Bulk upload failed", error);
+        alert("Failed to process file");
+      } finally {
+        setIsUploading(false);
+        // Reset file input so same file can be selected again if needed
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const triggerFileUpload = () => {
+    fileInputRef.current?.click();
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -164,9 +211,11 @@ export const AdminPage: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Add IP Form */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-24">
+        {/* Left Column: Actions */}
+        <div className="lg:col-span-1 space-y-6">
+          
+          {/* Add Single IP */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
               <Plus className="h-5 w-5 text-indigo-600" />
               Add New IP
@@ -188,9 +237,66 @@ export const AdminPage: React.FC = () => {
               </Button>
             </form>
           </div>
+
+          {/* Bulk Import */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <FileText className="h-5 w-5 text-indigo-600" />
+              Bulk Import
+            </h2>
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Upload a .txt file with one IP address per line to add multiple records at once.
+              </p>
+              
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".txt"
+                className="hidden"
+              />
+              
+              <Button 
+                type="button" 
+                variant="secondary" 
+                fullWidth 
+                onClick={triggerFileUpload}
+                isLoading={isUploading}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Select File
+              </Button>
+
+              {uploadStats && (
+                <div className="mt-4 p-3 bg-slate-50 rounded-lg text-sm border border-slate-100">
+                  <div className="font-medium text-slate-900 mb-2">Import Results:</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center text-emerald-600">
+                      <CheckCircle2 className="h-3 w-3 mr-2" />
+                      <span>{uploadStats.added} added</span>
+                    </div>
+                    {uploadStats.existing > 0 && (
+                       <div className="flex items-center text-amber-600">
+                        <Database className="h-3 w-3 mr-2" />
+                        <span>{uploadStats.existing} duplicates skipped</span>
+                      </div>
+                    )}
+                    {uploadStats.errors > 0 && (
+                      <div className="flex items-center text-red-600">
+                        <XCircle className="h-3 w-3 mr-2" />
+                        <span>{uploadStats.errors} invalid format</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
 
-        {/* IP List */}
+        {/* Right Column: IP List */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">

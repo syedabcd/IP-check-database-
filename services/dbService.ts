@@ -8,16 +8,14 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const getDb = (): IpRecord[] => {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (!stored) {
-    // Seed with some initial data if empty
-    const initialData: IpRecord[] = [
-      { id: '1', address: '192.168.1.1', createdAt: new Date().toISOString(), addedBy: 'admin' },
-      { id: '2', address: '10.0.0.1', createdAt: new Date().toISOString(), addedBy: 'admin' },
-      { id: '3', address: '8.8.8.8', createdAt: new Date().toISOString(), addedBy: 'admin' },
-    ];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
-    return initialData;
+    return [];
   }
-  return JSON.parse(stored);
+  try {
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error("Error parsing DB from storage", error);
+    return [];
+  }
 };
 
 const saveDb = (data: IpRecord[]) => {
@@ -25,7 +23,7 @@ const saveDb = (data: IpRecord[]) => {
 };
 
 export const checkIpAvailability = async (ip: string): Promise<boolean> => {
-  await delay(600); // Simulate backend processing
+  await delay(400); // Simulate backend processing
   const db = getDb();
   return !db.some(record => record.address === ip);
 };
@@ -36,7 +34,7 @@ export const getAllIps = async (): Promise<IpRecord[]> => {
 };
 
 export const addIpAddress = async (ip: string): Promise<IpRecord> => {
-  await delay(500);
+  await delay(400);
   const db = getDb();
   
   if (db.some(record => record.address === ip)) {
@@ -53,6 +51,46 @@ export const addIpAddress = async (ip: string): Promise<IpRecord> => {
   db.push(newRecord);
   saveDb(db);
   return newRecord;
+};
+
+export const bulkAddIpAddresses = async (ips: string[]): Promise<{ added: number; existing: number; errors: number }> => {
+  await delay(800);
+  const db = getDb();
+  let added = 0;
+  let existing = 0;
+  let errors = 0;
+  
+  // IPv4 Regex
+  const regex = /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/;
+
+  // Dedup input list within itself
+  const uniqueInputIps = Array.from(new Set(ips));
+
+  for (const ip of uniqueInputIps) {
+    if (!regex.test(ip)) {
+      errors++;
+      continue;
+    }
+
+    if (db.some(record => record.address === ip)) {
+      existing++;
+    } else {
+      const newRecord: IpRecord = {
+        id: crypto.randomUUID(),
+        address: ip,
+        createdAt: new Date().toISOString(),
+        addedBy: 'admin'
+      };
+      db.push(newRecord);
+      added++;
+    }
+  }
+
+  if (added > 0) {
+    saveDb(db);
+  }
+
+  return { added, existing, errors };
 };
 
 export const deleteIpAddress = async (id: string): Promise<void> => {
