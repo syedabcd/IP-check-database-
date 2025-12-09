@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import { Button } from '../components/Button';
 import { IpStatusCard } from '../components/IpStatusCard';
 import { CheckStatus } from '../types';
-import { checkIpAvailability } from '../services/dbService';
+import { checkIpAvailability, addIpAddress } from '../services/dbService';
 
 export const IpCheckPage: React.FC = () => {
   const [ip, setIp] = useState('');
   const [status, setStatus] = useState<CheckStatus>(CheckStatus.IDLE);
   const [loading, setLoading] = useState(false);
   const [searchedIp, setSearchedIp] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
 
   const validateIp = (ip: string) => {
     // Basic regex for IPv4
@@ -38,6 +39,22 @@ export const IpCheckPage: React.FC = () => {
       setStatus(CheckStatus.ERROR);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddToDatabase = async () => {
+    if (!searchedIp) return;
+    setIsAdding(true);
+    try {
+      await addIpAddress(searchedIp);
+      // Once added, the IP is no longer "Fresh", it is now in the database.
+      // We update status to DUPLICATE to reflect this state change.
+      setStatus(CheckStatus.DUPLICATE);
+    } catch (error) {
+      console.error("Failed to add IP", error);
+      alert("Failed to add IP to database. It might have been added already.");
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -88,6 +105,21 @@ export const IpCheckPage: React.FC = () => {
         </form>
 
         <IpStatusCard status={status} ip={searchedIp} />
+
+        {status === CheckStatus.FRESH && (
+          <div className="mt-6 pt-6 border-t border-slate-100 flex flex-col items-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <p className="text-sm text-slate-500 mb-3">Want to track this IP?</p>
+            <Button 
+              onClick={handleAddToDatabase} 
+              isLoading={isAdding}
+              variant="secondary"
+              className="w-full sm:w-auto"
+            >
+              <Plus className="h-4 w-4 mr-2 text-indigo-600" />
+              Add {searchedIp} to Database
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
