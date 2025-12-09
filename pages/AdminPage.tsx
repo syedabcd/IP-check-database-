@@ -1,0 +1,238 @@
+import React, { useState, useEffect } from 'react';
+import { Lock, LogOut, Plus, Trash2, Database, AlertTriangle } from 'lucide-react';
+import { Button } from '../components/Button';
+import { getAllIps, addIpAddress, deleteIpAddress } from '../services/dbService';
+import { IpRecord } from '../types';
+
+export const AdminPage: React.FC = () => {
+  // Auth State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  // Dashboard State
+  const [ips, setIps] = useState<IpRecord[]>([]);
+  const [newIp, setNewIp] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [addError, setAddError] = useState('');
+
+  // Check session on mount (simple in-memory persistence for this demo)
+  useEffect(() => {
+    const session = sessionStorage.getItem('admin_session');
+    if (session === 'true') {
+      setIsAuthenticated(true);
+      fetchData();
+    }
+  }, []);
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const data = await getAllIps();
+      setIps(data);
+    } catch (error) {
+      console.error("Failed to fetch IPs", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username === 'admin' && password === 'admin') {
+      setIsAuthenticated(true);
+      setAuthError('');
+      sessionStorage.setItem('admin_session', 'true');
+      fetchData();
+    } else {
+      setAuthError('Invalid credentials. Please try again.');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUsername('');
+    setPassword('');
+    sessionStorage.removeItem('admin_session');
+  };
+
+  const handleAddIp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newIp) return;
+    
+    // Basic Regex
+    const regex = /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/;
+    if (!regex.test(newIp)) {
+      setAddError('Invalid IP format');
+      return;
+    }
+
+    setIsAdding(true);
+    setAddError('');
+    try {
+      await addIpAddress(newIp);
+      setNewIp('');
+      await fetchData();
+    } catch (error: any) {
+      setAddError(error.message || 'Failed to add IP');
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure you want to remove this IP?')) return;
+    
+    try {
+      await deleteIpAddress(id);
+      await fetchData();
+    } catch (error) {
+      console.error("Failed to delete", error);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-md space-y-8">
+          <div className="text-center">
+            <div className="mx-auto h-12 w-12 bg-indigo-100 rounded-full flex items-center justify-center">
+              <Lock className="h-6 w-6 text-indigo-600" />
+            </div>
+            <h2 className="mt-6 text-3xl font-extrabold text-slate-900">Admin Login</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Access the IP database management console
+            </p>
+          </div>
+          
+          <form className="mt-8 space-y-6 bg-white p-8 rounded-xl shadow-lg border border-slate-200" onSubmit={handleLogin}>
+            {authError && (
+              <div className="p-3 rounded-md bg-red-50 text-red-700 text-sm flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                {authError}
+              </div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Username</label>
+                <input
+                  type="text"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                />
+              </div>
+            </div>
+
+            <Button type="submit" fullWidth>
+              Sign in
+            </Button>
+          </form>
+          
+          <div className="text-center text-xs text-slate-400">
+             (Hint: user=admin, pass=admin)
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
+          <p className="text-slate-600">Manage your IP database</p>
+        </div>
+        <Button variant="secondary" onClick={handleLogout}>
+          <LogOut className="h-4 w-4 mr-2" />
+          Logout
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Add IP Form */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-24">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <Plus className="h-5 w-5 text-indigo-600" />
+              Add New IP
+            </h2>
+            <form onSubmit={handleAddIp}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-1">IP Address</label>
+                <input
+                  type="text"
+                  value={newIp}
+                  onChange={(e) => setNewIp(e.target.value)}
+                  placeholder="0.0.0.0"
+                  className="block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2.5 border"
+                />
+                {addError && <p className="mt-2 text-xs text-red-600">{addError}</p>}
+              </div>
+              <Button type="submit" fullWidth isLoading={isAdding}>
+                Add to Database
+              </Button>
+            </form>
+          </div>
+        </div>
+
+        {/* IP List */}
+        <div className="lg:col-span-2">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                <Database className="h-5 w-5 text-slate-500" />
+                Database Records
+              </h2>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                {ips.length} Total
+              </span>
+            </div>
+            
+            {isLoading ? (
+              <div className="p-12 text-center text-slate-500">Loading database...</div>
+            ) : ips.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                Database is empty. Add an IP to get started.
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-200">
+                {ips.map((record) => (
+                  <li key={record.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group">
+                    <div>
+                      <div className="font-mono text-slate-900 font-medium">{record.address}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        Added: {new Date(record.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDelete(record.id)}
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      title="Delete IP"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

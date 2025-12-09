@@ -1,0 +1,5 @@
+{
+  "name": "IP Sentinel",
+  "description": "A robust IP address management and verification system featuring a public verification portal and a secured administrative dashboard for database management.",
+  "requestFramePermissions": []
+}
