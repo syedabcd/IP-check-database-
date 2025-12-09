@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertCircle, Database } from 'lucide-react';
 import { CheckStatus } from '../types';
 
 interface IpStatusCardProps {
@@ -13,8 +13,8 @@ export const IpStatusCard: React.FC<IpStatusCardProps> = ({ status, ip }) => {
   const config = {
     [CheckStatus.FRESH]: {
       icon: CheckCircle2,
-      title: "Fresh IP Address",
-      desc: "This IP address was not found in our database.",
+      title: "Fresh IP & Added to Database",
+      desc: "This IP was fresh and has been automatically saved to the database.",
       color: "text-emerald-600",
       bg: "bg-emerald-50",
       border: "border-emerald-200",

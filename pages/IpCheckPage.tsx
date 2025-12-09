@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus } from 'lucide-react';
+import { Search, AlertTriangle } from 'lucide-react';
 import { Button } from '../components/Button';
 import { IpStatusCard } from '../components/IpStatusCard';
 import { CheckStatus } from '../types';
@@ -10,7 +10,7 @@ export const IpCheckPage: React.FC = () => {
   const [status, setStatus] = useState<CheckStatus>(CheckStatus.IDLE);
   const [loading, setLoading] = useState(false);
   const [searchedIp, setSearchedIp] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   const validateIp = (ip: string) => {
     // Basic regex for IPv4
@@ -20,6 +20,7 @@ export const IpCheckPage: React.FC = () => {
 
   const handleCheck = async (e: React.FormEvent) => {
     e.preventDefault();
+    setConfigError(null);
     if (!ip.trim()) return;
 
     if (!validateIp(ip)) {
@@ -33,28 +34,25 @@ export const IpCheckPage: React.FC = () => {
 
     try {
       const isFresh = await checkIpAvailability(ip);
-      setStatus(isFresh ? CheckStatus.FRESH : CheckStatus.DUPLICATE);
-    } catch (error) {
+      
+      if (isFresh) {
+        // Automatically add to database if fresh
+        await addIpAddress(ip);
+        setStatus(CheckStatus.FRESH);
+      } else {
+        setStatus(CheckStatus.DUPLICATE);
+      }
+    } catch (error: any) {
       console.error(error);
-      setStatus(CheckStatus.ERROR);
+      // Check if it's the specific config error from dbService
+      if (error.message && error.message.includes('Supabase is not configured')) {
+        setConfigError(error.message);
+        setStatus(CheckStatus.IDLE); // Don't show the card
+      } else {
+        setStatus(CheckStatus.ERROR);
+      }
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleAddToDatabase = async () => {
-    if (!searchedIp) return;
-    setIsAdding(true);
-    try {
-      await addIpAddress(searchedIp);
-      // Once added, the IP is no longer "Fresh", it is now in the database.
-      // We update status to DUPLICATE to reflect this state change.
-      setStatus(CheckStatus.DUPLICATE);
-    } catch (error) {
-      console.error("Failed to add IP", error);
-      alert("Failed to add IP to database. It might have been added already.");
-    } finally {
-      setIsAdding(false);
     }
   };
 
@@ -66,9 +64,19 @@ export const IpCheckPage: React.FC = () => {
         </h1>
         <p className="mt-4 text-lg text-slate-600">
           Check if an IP address exists in our database immediately. 
-          Fast, secure, and reliable verification.
+          If it's fresh, we'll automatically add it to our secure records.
         </p>
       </div>
+
+      {configError && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+          <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-amber-800">
+            <p className="font-semibold">Configuration Required</p>
+            <p className="mt-1">{configError}</p>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 sm:p-8">
         <form onSubmit={handleCheck} className="relative">
@@ -83,6 +91,7 @@ export const IpCheckPage: React.FC = () => {
               onChange={(e) => {
                 setIp(e.target.value);
                 if (status !== CheckStatus.IDLE) setStatus(CheckStatus.IDLE);
+                if (configError) setConfigError(null);
               }}
               placeholder="e.g. 192.168.1.100"
               className="block w-full rounded-lg border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 pl-4 pr-12 py-3 text-lg"
@@ -100,26 +109,11 @@ export const IpCheckPage: React.FC = () => {
             className="mt-6" 
             isLoading={loading}
           >
-            Check Status
+            Check Status & Auto-Add
           </Button>
         </form>
 
         <IpStatusCard status={status} ip={searchedIp} />
-
-        {status === CheckStatus.FRESH && (
-          <div className="mt-6 pt-6 border-t border-slate-100 flex flex-col items-center animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <p className="text-sm text-slate-500 mb-3">Want to track this IP?</p>
-            <Button 
-              onClick={handleAddToDatabase} 
-              isLoading={isAdding}
-              variant="secondary"
-              className="w-full sm:w-auto"
-            >
-              <Plus className="h-4 w-4 mr-2 text-indigo-600" />
-              Add {searchedIp} to Database
-            </Button>
-          </div>
-        )}
       </div>
 
       <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">

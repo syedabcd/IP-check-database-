@@ -17,6 +17,7 @@ export const AdminPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState('');
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Bulk Upload State
   const [isUploading, setIsUploading] = useState(false);
@@ -34,11 +35,15 @@ export const AdminPage: React.FC = () => {
 
   const fetchData = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const data = await getAllIps();
       setIps(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch IPs", error);
+      if (error.message && error.message.includes('Supabase is not configured')) {
+        setFetchError(error.message);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -209,6 +214,16 @@ export const AdminPage: React.FC = () => {
           Logout
         </Button>
       </div>
+      
+      {fetchError && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-red-800">
+            <p className="font-semibold">Configuration Error</p>
+            <p className="mt-1">{fetchError}</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: Actions */}
@@ -313,7 +328,7 @@ export const AdminPage: React.FC = () => {
               <div className="p-12 text-center text-slate-500">Loading database...</div>
             ) : ips.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
-                Database is empty. Add an IP to get started.
+                {fetchError ? 'Unable to load records.' : 'Database is empty. Add an IP to get started.'}
               </div>
             ) : (
               <ul className="divide-y divide-slate-200">
